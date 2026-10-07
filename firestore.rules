@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['lastCloudSync', 'deviceTransactionCount']) &&
+             (!('lastCloudSync' in data) || data.lastCloudSync is number) &&
+             (!('deviceTransactionCount' in data) || data.deviceTransactionCount is number);
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasOnly(['id', 'amount', 'category', 'date', 'description', 'type', 'paymentMethod', 'note', 'tag', 'lastModified']) &&
+             (!('id' in data) || data.id is number) &&
+             data.amount is number &&
+             data.category is string &&
+             data.date is number &&
+             (!('description' in data) || data.description is string) &&
+             (!('type' in data) || data.type in ['EXPENSE', 'INCOME']) &&
+             (!('paymentMethod' in data) || data.paymentMethod is string) &&
+             (!('note' in data) || data.note is string) &&
+             (!('tag' in data) || data.tag is string) &&
+             (!('lastModified' in data) || data.lastModified is number);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isOwner(userId);
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTransaction(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /budgets/{budgetId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /recurring/{recurringId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /portfolio/{assetId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

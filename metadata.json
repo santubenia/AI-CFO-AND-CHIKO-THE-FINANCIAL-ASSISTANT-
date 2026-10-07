@@ -1,0 +1,6 @@
+{
+  "name": "CoE",
+  "description": "CoE - Next-Gen Wealth, Expense, Sales & Net Worth Management with Chiko AI CFO, Portfolio Analytics, and Shake-to-Log.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

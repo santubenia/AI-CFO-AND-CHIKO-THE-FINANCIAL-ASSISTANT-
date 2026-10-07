@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and synchronization metadata",
+      "type": "object",
+      "properties": {
+        "lastCloudSync": {
+          "type": "number",
+          "description": "Epoch timestamp of last cloud sync"
+        },
+        "deviceTransactionCount": {
+          "type": "number",
+          "description": "Count of synced device transactions"
+        }
+      }
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Local Room transaction ID"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Transaction amount"
+        },
+        "category": {
+          "type": "string",
+          "description": "Category name"
+        },
+        "date": {
+          "type": "number",
+          "description": "Epoch timestamp of transaction"
+        },
+        "description": {
+          "type": "string",
+          "description": "Transaction description or merchant"
+        },
+        "type": {
+          "type": "string",
+          "description": "Transaction type (EXPENSE or INCOME)"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment instrument"
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional notes"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Optional tag"
+        },
+        "lastModified": {
+          "type": "number",
+          "description": "Epoch timestamp of modification"
+        }
+      },
+      "required": ["amount", "category", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User document containing account metadata"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "User financial transaction documents"
+    }
+  }
+}

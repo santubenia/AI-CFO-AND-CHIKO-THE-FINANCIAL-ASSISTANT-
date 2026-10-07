@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Glowing Cyan/Emerald Outer Orbit Arc (C) -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M54,28 C39.6,28 28,39.6 28,54 C28,68.4 39.6,80 54,80 C63.5,80 71.8,74.9 76.2,67.3 L69.5,63.4 C66.5,68.8 60.7,72.4 54,72.4 C43.8,72.4 35.6,64.2 35.6,54 C35.6,43.8 43.8,35.6 54,35.6 C60.7,35.6 66.5,39.2 69.5,44.6 L76.2,40.7 C71.8,33.1 63.5,28 54,28 Z" />
+
+    <!-- Central Golden Orbital Sphere (o) -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M51,54 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path
+        android:fillColor="#091E19"
+        android:pathData="M51,54 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+
+    <!-- Futuristic Growth Bars (E) -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M66,41 L82,41 C83.1,41 84,41.9 84,43 L84,45 C84,46.1 83.1,47 82,47 L66,47 Z" />
+    <path
+        android:fillColor="#6EE7B7"
+        android:pathData="M66,51 L78,51 C79.1,51 80,51.9 80,53 L80,55 C80,56.1 79.1,57 78,57 L66,57 Z" />
+    <path
+        android:fillColor="#A7F3D0"
+        android:pathData="M66,61 L82,61 C83.1,61 84,61.9 84,63 L84,65 C84,66.1 83.1,67 82,67 L66,67 Z" />
+
+    <!-- Upward Growth Sparkle -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M78,25 L85,25 L85,32 L81.5,28.5 L73,37 L70,34 L78.5,25.5 Z" />
+</vector>
