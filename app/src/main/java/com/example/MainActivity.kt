@@ -82,6 +82,8 @@ import com.example.data.PortfolioAssetEntity
 import com.example.data.SaleEntity
 import com.example.service.CoEShakeService
 import com.example.ui.ExpenseViewModel
+import com.example.model.BudgetPeriod
+import com.example.model.Categories
 import com.example.ui.chiko.ChikoCfoSheet
 import com.example.ui.components.AddEditExpenseDialog
 import com.example.ui.components.AddEditPortfolioAssetDialog
@@ -162,8 +164,9 @@ fun ExpenseApp(
     var expensesSubPage by remember { mutableIntStateOf(0) } // 0: Daily Expenses, 1: Expenses Analysis
     var sellsSubPage by remember { mutableIntStateOf(0) } // 0: Sell's Diary, 1: Sell's Analysis
 
-    // Hide / Show Eye option for Net Worth (hidden by default with zero)
+    // Hide / Show Eye option for Net Worth (hidden by default with stars on launch)
     var isNetWorthHidden by remember { mutableStateOf(true) }
+    var showNetWorthUnlockDialog by remember { mutableStateOf(false) }
 
     // Chiko AI CFO Sheet
     var showChikoSheet by remember { mutableStateOf(false) }
@@ -186,6 +189,9 @@ fun ExpenseApp(
 
     var editingBudgetCategory by remember { mutableStateOf<String?>(null) }
     var editingBudgetLimit by remember { mutableStateOf(0.0) }
+    var editingBudgetPeriod by remember { mutableStateOf(BudgetPeriod.MONTHLY) }
+    var editingBudgetThreshold by remember { mutableStateOf(80.0) }
+    val notifiedNearBudgets = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     var showClearConfirmation by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -268,8 +274,28 @@ fun ExpenseApp(
                 category = ws.category,
                 spent = ws.spent,
                 limit = ws.limit,
-                currencySymbol = uiState.currencySymbol
+                currencySymbol = uiState.currencySymbol,
+                periodName = ws.period.title
             )
+        }
+    }
+
+    // Proactive Nearing Budget Limit notification triggers (alerts when nearing spending limits)
+    LaunchedEffect(uiState.nearBudgetWarnings) {
+        uiState.nearBudgetWarnings.forEach { ws ->
+            val key = "${ws.category}_${ws.period.id}_${(ws.percentage * 10).toInt()}"
+            if (!notifiedNearBudgets.contains(key)) {
+                notifiedNearBudgets.add(key)
+                NotificationHelper.showNearBudgetLimitNotification(
+                    context = context,
+                    category = ws.category,
+                    spent = ws.spent,
+                    limit = ws.limit,
+                    percentage = ws.percentage,
+                    currencySymbol = uiState.currencySymbol,
+                    periodName = ws.period.title
+                )
+            }
         }
     }
 
@@ -332,7 +358,7 @@ fun ExpenseApp(
                                     color = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) IncomeGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
                                 ) {
                                     Text(
-                                        text = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) "+14.2%" else "0.0%",
+                                        text = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) "+14.2%" else "••••%",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                                         fontWeight = FontWeight.Bold,
                                         color = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) IncomeGreen else MaterialTheme.colorScheme.outline,
@@ -343,22 +369,30 @@ fun ExpenseApp(
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = if (isNetWorthHidden) "${uiState.currencySymbol}0" else DateUtils.formatCurrency(uiState.totalNetWorth, uiState.currencySymbol),
+                                    text = if (isNetWorthHidden) "${uiState.currencySymbol} ★ ★ ★ ★ ★" else DateUtils.formatCurrency(uiState.totalNetWorth, uiState.currencySymbol),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                // Hide Eye Option to show or hide net worth
+                                // Security Eye Option to show or hide net worth
                                 IconButton(
-                                    onClick = { isNetWorthHidden = !isNetWorthHidden },
+                                    onClick = {
+                                        if (isNetWorthHidden) {
+                                            // Every time user wants to view: authenticate via Passcode (offline) or OTP (online)
+                                            showNetWorthUnlockDialog = true
+                                        } else {
+                                            // Lock back into stars immediately
+                                            isNetWorthHidden = true
+                                        }
+                                    },
                                     modifier = Modifier.size(24.dp).testTag("net_worth_eye_toggle")
                                 ) {
                                     Icon(
                                         imageVector = if (isNetWorthHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = if (isNetWorthHidden) "Show Net Worth" else "Hide Net Worth",
-                                        tint = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.size(14.dp)
+                                        contentDescription = if (isNetWorthHidden) "Unlock & View Net Worth" else "Hide Net Worth",
+                                        tint = if (isNetWorthHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.size(15.dp)
                                     )
                                 }
                             }
@@ -550,9 +584,12 @@ fun ExpenseApp(
                     MainTab.BUDGET -> {
                         BudgetsScreen(
                             uiState = uiState,
-                            onEditBudget = { category, limit ->
+                            onPeriodChange = { period -> viewModel.setSelectedBudgetPeriod(period) },
+                            onEditBudget = { category, limit, period, threshold ->
                                 editingBudgetCategory = category
                                 editingBudgetLimit = limit
+                                editingBudgetPeriod = period
+                                editingBudgetThreshold = threshold
                             },
                             onResetSampleData = { viewModel.resetSampleData() },
                             onClearAllData = { showClearConfirmation = true },
@@ -599,6 +636,7 @@ fun ExpenseApp(
                             onCloudSync = { userId -> viewModel.syncWithCloud(userId) },
                             onExportCsv = { viewModel.exportTransactionsCsv(context) },
                             onImportCsv = { csv -> viewModel.importTransactionsCsv(csv) { /* completed */ } },
+                            onSetNetWorthPasscode = { pin -> viewModel.setNetWorthPasscode(pin) },
                             isSyncing = isSyncing,
                             lastSyncTime = lastSyncTime,
                             syncMessage = syncMessage
@@ -804,9 +842,16 @@ fun ExpenseApp(
             categoryName = editingBudgetCategory!!,
             currentLimit = editingBudgetLimit,
             currencySymbol = uiState.currencySymbol,
+            initialPeriod = editingBudgetPeriod,
+            initialThreshold = editingBudgetThreshold,
+            availableCategories = Categories.expenseCategories.map { it.name },
             onDismiss = { editingBudgetCategory = null },
-            onSave = { newLimit ->
-                viewModel.setBudget(editingBudgetCategory!!, newLimit)
+            onSave = { category, newLimit, period, threshold ->
+                viewModel.setBudget(category, newLimit, period, threshold)
+                editingBudgetCategory = null
+            },
+            onDelete = { category, period ->
+                viewModel.deleteBudget(category, period)
                 editingBudgetCategory = null
             }
         )
@@ -832,6 +877,23 @@ fun ExpenseApp(
                 TextButton(onClick = { showClearConfirmation = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // Net Worth Security Shield Unlock Dialog (Offline Passcode or Online OTP)
+    if (showNetWorthUnlockDialog) {
+        com.example.ui.components.NetWorthUnlockDialog(
+            userPasscode = uiState.netWorthPasscode,
+            onPasscodeSuccess = {
+                isNetWorthHidden = false
+                showNetWorthUnlockDialog = false
+                android.widget.Toast.makeText(context, "Net Worth Unlocked!", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showNetWorthUnlockDialog = false },
+            onChangeSavedPasscode = { newPin ->
+                viewModel.setNetWorthPasscode(newPin)
+                android.widget.Toast.makeText(context, "Passcode updated to $newPin!", android.widget.Toast.LENGTH_SHORT).show()
             }
         )
     }

@@ -11,6 +11,7 @@ import com.example.data.ExpenseRepository
 import com.example.data.PortfolioAssetEntity
 import com.example.data.SaleEntity
 import com.example.data.TransactionEntity
+import com.example.model.BudgetPeriod
 import com.example.model.Categories
 import com.example.ui.anumati.AnumatiPfEsiResult
 import com.example.util.DateUtils
@@ -64,12 +65,14 @@ data class CategorySpend(
 
 data class BudgetStatus(
     val category: String,
+    val period: BudgetPeriod = BudgetPeriod.MONTHLY,
     val limit: Double,
     val spent: Double,
     val percentage: Float,
     val remaining: Double,
+    val alertThresholdPercent: Double = 80.0,
     val isExceeded: Boolean = spent > limit && limit > 0,
-    val isNearLimit: Boolean = percentage >= 0.8f && spent <= limit && limit > 0
+    val isNearLimit: Boolean = limit > 0 && spent <= limit && (spent / limit) >= (alertThresholdPercent / 100.0)
 )
 
 data class ExpenseUiState(
@@ -83,6 +86,16 @@ data class ExpenseUiState(
     val searchQuery: String = "",
     val selectedCategoryFilter: String? = null,
     val selectedTypeFilter: String? = null,
+
+    // Multi-Period Budgets & Spending Plan
+    val selectedBudgetPeriod: BudgetPeriod = BudgetPeriod.MONTHLY,
+    val periodExpenseTotal: Double = 0.0,
+    val periodDaysLeft: Int = 30,
+    val periodFormattedLabel: String = "Monthly Plan",
+    val budgetStatuses: List<BudgetStatus> = emptyList(),
+    val allPeriodBudgetStatuses: List<BudgetStatus> = emptyList(),
+    val exceededBudgetWarnings: List<BudgetStatus> = emptyList(),
+    val nearBudgetWarnings: List<BudgetStatus> = emptyList(),
 
     // Net Worth & Portfolio Totals
     val totalNetWorth: Double = 0.0,
@@ -108,8 +121,6 @@ data class ExpenseUiState(
     val monthExpenseTotal: Double = 0.0,
     val monthIncomeTotal: Double = 0.0,
     val overallBudget: Double = 55000.0,
-    val budgetStatuses: List<BudgetStatus> = emptyList(),
-    val exceededBudgetWarnings: List<BudgetStatus> = emptyList(),
 
     // Computed for Analytics
     val analyticsExpenses: List<ExpenseEntity> = emptyList(),
@@ -148,7 +159,10 @@ data class ExpenseUiState(
     val recurringTransactions: List<com.example.data.RecurringTransactionEntity> = emptyList(),
     val defaultRecurringCategory: String = "Housing",
     val defaultRecurringFrequency: String = "MONTHLY",
-    val defaultRecurringPaymentMethod: String = "Bank Transfer"
+    val defaultRecurringPaymentMethod: String = "Bank Transfer",
+
+    // Net Worth Security Passcode
+    val netWorthPasscode: String = "1234"
 )
 
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
@@ -162,6 +176,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _searchQuery = MutableStateFlow("")
     private val _selectedCategoryFilter = MutableStateFlow<String?>(null)
     private val _selectedTypeFilter = MutableStateFlow<String?>("ALL")
+    private val _selectedBudgetPeriod = MutableStateFlow(BudgetPeriod.MONTHLY)
     private val _isShakeToLogEnabled = MutableStateFlow(prefs.getBoolean("SHAKE_ENABLED", false))
     private val _shakeSensitivity = MutableStateFlow(prefs.getString("SHAKE_SENSITIVITY", "Fast (Instant 1.8G)") ?: "Fast (Instant 1.8G)")
     private val _shakeLaunchMode = MutableStateFlow(prefs.getString("SHAKE_LAUNCH_MODE", "EVERY_SHAKE") ?: "EVERY_SHAKE")
@@ -169,6 +184,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _isGoogleFitEnabled = MutableStateFlow(prefs.getBoolean("GOOGLE_FIT_ENABLED", false))
     private val _isCloudBackupEnabled = MutableStateFlow(prefs.getBoolean("CLOUD_BACKUP_ENABLED", false))
     private val _selectedTheme = MutableStateFlow(prefs.getString("DEFAULT_THEME", "SYSTEM") ?: "SYSTEM")
+    private val _netWorthPasscode = MutableStateFlow(prefs.getString("NET_WORTH_PASSCODE", "1234") ?: "1234")
 
     init {
         val db = AppDatabase.getDatabase(application)
@@ -252,7 +268,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             _selectedTypeFilter,
             _isShakeToLogEnabled,
             _shakeSensitivity,
-            _shakeLaunchMode
+            _shakeLaunchMode,
+            _selectedBudgetPeriod
         ) { args: Array<Any?> ->
             FilterParams(
                 timeRange = args[0] as TimeRange,
@@ -261,14 +278,16 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 selectedTypeFilter = args[3] as? String,
                 isShakeToLogEnabled = args[4] as Boolean,
                 shakeSensitivity = args[5] as String,
-                shakeLaunchMode = args[6] as String
+                shakeLaunchMode = args[6] as String,
+                selectedBudgetPeriod = args[7] as BudgetPeriod
             )
         },
         combine(
             _isGoogleFitEnabled,
             _isCloudBackupEnabled,
-            _selectedTheme
-        ) { fit, cloud, theme -> Triple(fit, cloud, theme) }
+            _selectedTheme,
+            _netWorthPasscode
+        ) { fit, cloud, theme, passcode -> Quad(fit, cloud, theme, passcode) }
     ) { dataQuint, selectedDate, currency, filters, integrations ->
         calculateUiState(
             expenses = dataQuint.first,
@@ -281,7 +300,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             filters = filters,
             isGoogleFit = integrations.first,
             isCloudBackup = integrations.second,
-            selectedTheme = integrations.third
+            selectedTheme = integrations.third,
+            netWorthPasscode = integrations.fourth
         )
     }.stateIn(
         scope = viewModelScope,
@@ -300,7 +320,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         filters: FilterParams,
         isGoogleFit: Boolean,
         isCloudBackup: Boolean,
-        selectedTheme: String
+        selectedTheme: String,
+        netWorthPasscode: String
     ): ExpenseUiState {
         val startOfSelectedDay = DateUtils.getStartOfDay(selectedDate)
         val endOfSelectedDay = DateUtils.getEndOfDay(selectedDate)
@@ -350,39 +371,80 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             .filter { it.type == "INCOME" }
             .sumOf { it.amount }
 
-        // Budgets & Limit Warnings
-        val overallBudget = budgets.find { it.category == "OVERALL" }?.monthlyLimit ?: 55000.0
-        val budgetStatuses = Categories.expenseCategories.map { category ->
-            val limit = budgets.find { it.category == category.name }?.monthlyLimit ?: 0.0
-            val spent = monthExpenses
-                .filter { it.category == category.name && it.type == "EXPENSE" }
-                .sumOf { it.amount }
-            BudgetStatus(
-                category = category.name,
-                limit = limit,
-                spent = spent,
-                percentage = if (limit > 0) (spent / limit).toFloat() else if (spent > 0) 1f else 0f,
-                remaining = (limit - spent).coerceAtLeast(0.0)
-            )
-        }.filter { it.limit > 0 || it.spent > 0 }.toMutableList()
+        // Multi-Period Budgets & Spending Plan (Monthly, Quarterly, Half-Yearly, Yearly)
+        val allPeriodStatuses = mutableListOf<BudgetStatus>()
+        var selectedPeriodStatuses = listOf<BudgetStatus>()
+        var selectedPeriodExpenseTotal = 0.0
+        var selectedPeriodOverallLimit = 55000.0
 
-        if (overallBudget > 0) {
-            val overallSpent = monthExpenseTotal
-            if (budgetStatuses.none { it.category == "Overall Budget" }) {
-                budgetStatuses.add(
+        for (period in BudgetPeriod.entries) {
+            val (pStart, pEnd) = period.getDateRange(now)
+            val periodExpenses = expenses.filter { it.timestamp in pStart..pEnd && it.type == "EXPENSE" }
+            val periodSpent = periodExpenses.sumOf { it.amount }
+
+            val defaultOverall = when (period) {
+                BudgetPeriod.MONTHLY -> 55000.0
+                BudgetPeriod.QUARTERLY -> 165000.0
+                BudgetPeriod.HALF_YEARLY -> 330000.0
+                BudgetPeriod.YEARLY -> 660000.0
+            }
+
+            val overallEntity = budgets.find {
+                it.category == "OVERALL" && (it.period == period.id || (period == BudgetPeriod.MONTHLY && it.period.isEmpty()))
+            }
+            val overallLimit = overallEntity?.limitAmount ?: defaultOverall
+
+            val catStatuses = Categories.expenseCategories.map { category ->
+                val entity = budgets.find {
+                    it.category == category.name && (it.period == period.id || (period == BudgetPeriod.MONTHLY && it.period.isEmpty()))
+                }
+                val limit = entity?.limitAmount ?: 0.0
+                val alertThreshold = entity?.alertThresholdPercent ?: 80.0
+                val spent = periodExpenses
+                    .filter { it.category == category.name }
+                    .sumOf { it.amount }
+                val pct = if (limit > 0) (spent / limit).toFloat() else if (spent > 0) 1f else 0f
+                BudgetStatus(
+                    category = category.name,
+                    period = period,
+                    limit = limit,
+                    spent = spent,
+                    percentage = pct,
+                    remaining = (limit - spent).coerceAtLeast(0.0),
+                    alertThresholdPercent = alertThreshold
+                )
+            }.toMutableList()
+
+            if (overallLimit > 0) {
+                val overallPct = if (overallLimit > 0) (periodSpent / overallLimit).toFloat() else if (periodSpent > 0) 1f else 0f
+                catStatuses.add(
                     0,
                     BudgetStatus(
                         category = "Overall Budget",
-                        limit = overallBudget,
-                        spent = overallSpent,
-                        percentage = if (overallBudget > 0) (overallSpent / overallBudget).toFloat() else if (overallSpent > 0) 1f else 0f,
-                        remaining = (overallBudget - overallSpent).coerceAtLeast(0.0)
+                        period = period,
+                        limit = overallLimit,
+                        spent = periodSpent,
+                        percentage = overallPct,
+                        remaining = (overallLimit - periodSpent).coerceAtLeast(0.0),
+                        alertThresholdPercent = overallEntity?.alertThresholdPercent ?: 80.0
                     )
                 )
             }
+
+            allPeriodStatuses.addAll(catStatuses)
+
+            if (period == filters.selectedBudgetPeriod) {
+                selectedPeriodStatuses = catStatuses
+                selectedPeriodExpenseTotal = periodSpent
+                selectedPeriodOverallLimit = overallLimit
+            }
         }
 
-        val exceededWarnings = budgetStatuses.filter { it.isExceeded }
+        val exceededWarnings = allPeriodStatuses.filter { it.isExceeded }
+        val nearWarnings = allPeriodStatuses.filter { it.isNearLimit }
+
+        val periodDaysLeft = filters.selectedBudgetPeriod.getDaysLeft()
+        val periodFormattedLabel = filters.selectedBudgetPeriod.getFormattedPeriodLabel(now)
 
         // Analytics range filtering
         val (analyticsStart, analyticsEnd) = when (filters.timeRange) {
@@ -529,11 +591,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             selectedDaySalesProfit = selectedDaySalesProfit,
             selectedDaySalesMargin = selectedDaySalesMargin,
             selectedDayUnitsSold = selectedDayUnitsSold,
+            selectedBudgetPeriod = filters.selectedBudgetPeriod,
+            periodExpenseTotal = selectedPeriodExpenseTotal,
+            periodDaysLeft = periodDaysLeft,
+            periodFormattedLabel = periodFormattedLabel,
             monthExpenseTotal = monthExpenseTotal,
             monthIncomeTotal = monthIncomeTotal,
-            overallBudget = overallBudget,
-            budgetStatuses = budgetStatuses,
+            overallBudget = selectedPeriodOverallLimit,
+            budgetStatuses = selectedPeriodStatuses,
+            allPeriodBudgetStatuses = allPeriodStatuses,
             exceededBudgetWarnings = exceededWarnings,
+            nearBudgetWarnings = nearWarnings,
             analyticsExpenses = analyticsExpenses,
             analyticsExpenseTotal = analyticsExpenseTotal,
             analyticsIncomeTotal = analyticsIncomeTotal,
@@ -556,8 +624,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             recurringTransactions = recurring,
             defaultRecurringCategory = prefs.getString("DEFAULT_RECURRING_CATEGORY", "Housing") ?: "Housing",
             defaultRecurringFrequency = prefs.getString("DEFAULT_RECURRING_FREQUENCY", "MONTHLY") ?: "MONTHLY",
-            defaultRecurringPaymentMethod = prefs.getString("DEFAULT_RECURRING_PAYMENT_METHOD", "Bank Transfer") ?: "Bank Transfer"
+            defaultRecurringPaymentMethod = prefs.getString("DEFAULT_RECURRING_PAYMENT_METHOD", "Bank Transfer") ?: "Bank Transfer",
+            netWorthPasscode = netWorthPasscode
         )
+    }
+
+    fun setNetWorthPasscode(passcode: String) {
+        _netWorthPasscode.value = passcode
+        prefs.edit().putString("NET_WORTH_PASSCODE", passcode).apply()
     }
 
     fun setTheme(theme: String) {
@@ -785,9 +859,37 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setBudget(category: String, limit: Double) {
+    fun setSelectedBudgetPeriod(period: BudgetPeriod) {
+        _selectedBudgetPeriod.value = period
+    }
+
+    fun setBudget(
+        category: String,
+        limit: Double,
+        period: BudgetPeriod = _selectedBudgetPeriod.value,
+        alertThreshold: Double = 80.0
+    ) {
         viewModelScope.launch {
-            repository.insertOrUpdateBudget(BudgetEntity(category, limit))
+            if (limit <= 0) {
+                repository.deleteBudgetByCategoryAndPeriod(category, period.id)
+            } else {
+                val id = BudgetEntity.createId(category, period)
+                repository.insertOrUpdateBudget(
+                    BudgetEntity(
+                        id = id,
+                        category = category,
+                        period = period.id,
+                        limitAmount = limit,
+                        alertThresholdPercent = alertThreshold
+                    )
+                )
+            }
+        }
+    }
+
+    fun deleteBudget(category: String, period: BudgetPeriod = _selectedBudgetPeriod.value) {
+        viewModelScope.launch {
+            repository.deleteBudgetByCategoryAndPeriod(category, period.id)
         }
     }
 
@@ -899,7 +1001,8 @@ private data class FilterParams(
     val selectedTypeFilter: String?,
     val isShakeToLogEnabled: Boolean,
     val shakeSensitivity: String,
-    val shakeLaunchMode: String
+    val shakeLaunchMode: String,
+    val selectedBudgetPeriod: BudgetPeriod
 )
 
 private data class Quad<A, B, C, D>(

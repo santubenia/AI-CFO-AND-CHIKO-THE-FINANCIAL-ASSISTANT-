@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -70,6 +71,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -130,6 +132,8 @@ fun ProfileHubScreen(
     onCloudSync: (String) -> Unit = {},
     onExportCsv: () -> Unit = {},
     onImportCsv: (String) -> Unit = {},
+    // Passcode Security Action
+    onSetNetWorthPasscode: (String) -> Unit = {},
     isSyncing: Boolean = false,
     lastSyncTime: Long = 0L,
     syncMessage: String? = null,
@@ -139,6 +143,8 @@ fun ProfileHubScreen(
     var selectedSubTab by remember { mutableIntStateOf(initialSubTab) } // 0: Passbook & Net Worth, 1: History, 2: Settings
     var showAuthDialog by remember { mutableStateOf(false) }
     var showAnumatiDialog by remember { mutableStateOf(false) }
+    var isPassbookNetWorthHidden by remember { mutableStateOf(true) }
+    var showUnlockDialog by remember { mutableStateOf(false) }
     val authUser by authManager.authState.collectAsState()
     val localActivity by LocalActivitySyncManager.activityData.collectAsState()
     val context = LocalContext.current
@@ -187,6 +193,16 @@ fun ProfileHubScreen(
         when (selectedSubTab) {
             0 -> PassbookSection(
                 uiState = uiState,
+                isNetWorthHidden = isPassbookNetWorthHidden,
+                onToggleNetWorth = {
+                    if (isPassbookNetWorthHidden) {
+                        // User wants to reveal -> require Passcode (offline) or OTP (online)
+                        showUnlockDialog = true
+                    } else {
+                        // User hides -> hide immediately
+                        isPassbookNetWorthHidden = true
+                    }
+                },
                 onAddAsset = onAddPortfolioAsset,
                 onEditAsset = onEditPortfolioAsset,
                 onDeleteAsset = onDeletePortfolioAsset,
@@ -219,11 +235,28 @@ fun ProfileHubScreen(
                 onCloudSync = onCloudSync,
                 onExportCsv = onExportCsv,
                 onImportCsv = onImportCsv,
+                onSetNetWorthPasscode = onSetNetWorthPasscode,
                 isSyncing = isSyncing,
                 lastSyncTime = lastSyncTime,
                 syncMessage = syncMessage
             )
         }
+    }
+
+    if (showUnlockDialog) {
+        com.example.ui.components.NetWorthUnlockDialog(
+            userPasscode = uiState.netWorthPasscode,
+            onPasscodeSuccess = {
+                isPassbookNetWorthHidden = false
+                showUnlockDialog = false
+                Toast.makeText(context, "Net Worth Unlocked!", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showUnlockDialog = false },
+            onChangeSavedPasscode = { newPin ->
+                onSetNetWorthPasscode(newPin)
+                Toast.makeText(context, "Passcode updated successfully!", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     if (showAuthDialog) {
@@ -248,13 +281,13 @@ fun ProfileHubScreen(
 @Composable
 private fun PassbookSection(
     uiState: ExpenseUiState,
+    isNetWorthHidden: Boolean,
+    onToggleNetWorth: () -> Unit,
     onAddAsset: () -> Unit,
     onEditAsset: (PortfolioAssetEntity) -> Unit,
     onDeleteAsset: (PortfolioAssetEntity) -> Unit,
     onOpenAnumati: () -> Unit
 ) {
-    var isNetWorthHidden by remember { mutableStateOf(true) }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
@@ -289,11 +322,33 @@ private fun PassbookSection(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Consolidated Net Worth",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color.White.copy(alpha = 0.85f)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Consolidated Net Worth",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.White.copy(alpha = 0.85f)
+                                )
+                                if (isNetWorthHidden) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color.White.copy(alpha = 0.15f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(10.dp))
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "PIN/OTP Protected",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
                                 color = Color.White.copy(alpha = 0.2f)
@@ -305,7 +360,7 @@ private fun PassbookSection(
                                     Icon(Icons.Default.TrendingUp, contentDescription = null, tint = Color(0xFFA7F3D0), modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) "+14.2% YTD" else "0.0% YTD",
+                                        text = if (!isNetWorthHidden && uiState.totalNetWorth > 0.0) "+14.2% YTD" else "••••% YTD",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFFA7F3D0)
@@ -322,21 +377,21 @@ private fun PassbookSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (isNetWorthHidden) "${uiState.currencySymbol}0" else DateUtils.formatCurrency(uiState.totalNetWorth, uiState.currencySymbol),
+                                text = if (isNetWorthHidden) "${uiState.currencySymbol} ★ ★ ★ ★ ★" else DateUtils.formatCurrency(uiState.totalNetWorth, uiState.currencySymbol),
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White
                             )
 
                             IconButton(
-                                onClick = { isNetWorthHidden = !isNetWorthHidden },
+                                onClick = onToggleNetWorth,
                                 modifier = Modifier
                                     .size(36.dp)
                                     .testTag("passbook_net_worth_eye_toggle")
                             ) {
                                 Icon(
                                     imageVector = if (isNetWorthHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isNetWorthHidden) "Show Net Worth" else "Hide Net Worth",
+                                    contentDescription = if (isNetWorthHidden) "Unlock & Show Net Worth" else "Hide Net Worth",
                                     tint = Color.White.copy(alpha = 0.85f),
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -344,7 +399,7 @@ private fun PassbookSection(
                         }
 
                         Text(
-                            text = "All accounts, investments, EPFO & ESI minus credit liabilities",
+                            text = if (isNetWorthHidden) "Tap the eye to enter Passcode (offline) or OTP (online)" else "All accounts, investments, EPFO & ESI minus credit liabilities",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.8f)
                         )
@@ -366,19 +421,19 @@ private fun PassbookSection(
                             ) {
                                 Column {
                                     Text("Banks", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (isNetWorthHidden) "${uiState.currencySymbol}0" else DateUtils.formatCurrency(uiState.totalBankBalance, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text(if (isNetWorthHidden) "★★★★" else DateUtils.formatCurrency(uiState.totalBankBalance, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                                 Column {
                                     Text("Investments", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (isNetWorthHidden) "${uiState.currencySymbol}0" else DateUtils.formatCurrency(uiState.totalInvestments, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFA7F3D0))
+                                    Text(if (isNetWorthHidden) "★★★★" else DateUtils.formatCurrency(uiState.totalInvestments, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFA7F3D0))
                                 }
                                 Column {
                                     Text("EPFO & ESI", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (isNetWorthHidden) "${uiState.currencySymbol}0" else DateUtils.formatCurrency(uiState.totalRetirementGovt, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFDE68A))
+                                    Text(if (isNetWorthHidden) "★★★★" else DateUtils.formatCurrency(uiState.totalRetirementGovt, uiState.currencySymbol), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFDE68A))
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Liabilities", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
-                                    Text(if (isNetWorthHidden) "${uiState.currencySymbol}0" else "-${DateUtils.formatCurrency(uiState.totalLiabilities, uiState.currencySymbol)}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFCA5A5))
+                                    Text(if (isNetWorthHidden) "★★★★" else "-${DateUtils.formatCurrency(uiState.totalLiabilities, uiState.currencySymbol)}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFCA5A5))
                                 }
                             }
                         }
@@ -592,11 +647,14 @@ private fun SettingsSection(
     onCloudSync: (String) -> Unit,
     onExportCsv: () -> Unit,
     onImportCsv: (String) -> Unit,
+    onSetNetWorthPasscode: (String) -> Unit,
     isSyncing: Boolean,
     lastSyncTime: Long,
     syncMessage: String?
 ) {
     val context = LocalContext.current
+    var isEditingPasscodeInSettings by remember { mutableStateOf(false) }
+    var newSettingsPasscode by remember { mutableStateOf("") }
     val currencies = listOf("₹" to "INR (₹)", "$" to "USD ($)", "€" to "EUR (€)", "£" to "GBP (£)", "¥" to "JPY (¥)", "C$" to "CAD (C$)")
 
     LazyColumn(
@@ -1031,6 +1089,105 @@ private fun SettingsSection(
                                 onClick = { onSetVibrationMode(mode) },
                                 label = { Text(if (mode == "Off") "Off (Battery Saver)" else mode, fontSize = 11.sp) }
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Net Worth Privacy & Passcode Setting
+        item {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth().testTag("net_worth_security_settings_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Net Worth Privacy Shield", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text("Hidden by default with stars on launch", style = MaterialTheme.typography.bodySmall, color = IncomeGreen, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Every time you launch the app, Net Worth is masked with stars. Viewing it requires entering your offline Passcode or a 6-digit online OTP.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Current Offline Passcode", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                Text("•••• (Saved)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = { isEditingPasscodeInSettings = !isEditingPasscodeInSettings },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (isEditingPasscodeInSettings) "Close" else "Change Passcode", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+
+                    if (isEditingPasscodeInSettings) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = newSettingsPasscode,
+                            onValueChange = {
+                                if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                    newSettingsPasscode = it
+                                }
+                            },
+                            label = { Text("Enter New Passcode (4-6 Digits)") },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { isEditingPasscodeInSettings = false }) {
+                                Text("Cancel")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    if (newSettingsPasscode.length >= 4) {
+                                        onSetNetWorthPasscode(newSettingsPasscode)
+                                        Toast.makeText(context, "New passcode saved successfully!", Toast.LENGTH_SHORT).show()
+                                        isEditingPasscodeInSettings = false
+                                        newSettingsPasscode = ""
+                                    }
+                                },
+                                enabled = newSettingsPasscode.length >= 4
+                            ) {
+                                Text("Save Passcode")
+                            }
                         }
                     }
                 }

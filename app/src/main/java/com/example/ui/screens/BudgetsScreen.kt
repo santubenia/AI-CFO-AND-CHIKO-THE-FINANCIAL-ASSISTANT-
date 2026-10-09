@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,22 +20,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +69,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.BudgetPeriod
 import com.example.model.Categories
 import com.example.model.DefaultWealthTargets
 import com.example.model.WealthTarget
@@ -74,7 +83,8 @@ import com.example.util.DateUtils
 @Composable
 fun BudgetsScreen(
     uiState: ExpenseUiState,
-    onEditBudget: (category: String, currentLimit: Double) -> Unit,
+    onPeriodChange: (BudgetPeriod) -> Unit = {},
+    onEditBudget: (category: String, currentLimit: Double, period: BudgetPeriod, threshold: Double) -> Unit,
     onResetSampleData: () -> Unit,
     onClearAllData: () -> Unit,
     onOpenChiko: () -> Unit = {},
@@ -95,13 +105,14 @@ fun BudgetsScreen(
     )
 
     val overallBudgetStatus = uiState.budgetStatuses.find { it.category == "Overall Budget" || it.category == "OVERALL" }
-    val overallLimit = overallBudgetStatus?.limit ?: 55000.0
-    val overallSpent = uiState.monthExpenseTotal
+    val overallLimit = overallBudgetStatus?.limit ?: uiState.overallBudget
+    val overallSpent = uiState.periodExpenseTotal
     val overallRemaining = (overallLimit - overallSpent).coerceAtLeast(0.0)
     val overallPct = if (overallLimit > 0) (overallSpent / overallLimit).toFloat() else 0f
     val isOverBudget = overallSpent > overallLimit
+    val isNearBudget = overallBudgetStatus?.isNearLimit ?: (overallPct >= 0.8f && !isOverBudget)
 
-    val daysLeft = DateUtils.getDaysLeftInCurrentMonth()
+    val daysLeft = uiState.periodDaysLeft
     val dailyAllowance = if (daysLeft > 0) overallRemaining / daysLeft else 0.0
 
     Column(
@@ -143,6 +154,150 @@ fun BudgetsScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // Multi-Period Horizon Switcher Bar
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.DateRange,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Plan Horizon / Period",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                    ) {
+                                        Text(
+                                            text = "${uiState.periodDaysLeft} days left in ${uiState.selectedBudgetPeriod.shortLabel}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    BudgetPeriod.entries.forEach { period ->
+                                        FilterChip(
+                                            selected = uiState.selectedBudgetPeriod == period,
+                                            onClick = { onPeriodChange(period) },
+                                            label = { Text(period.title, fontWeight = FontWeight.SemiBold) },
+                                            modifier = Modifier.testTag("tab_period_${period.name.lowercase()}")
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Active Warnings Banner when limit is approaching / near threshold (e.g. >= 80%)
+                    if (uiState.nearBudgetWarnings.isNotEmpty()) {
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(18.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.12f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("budget_near_warning_card")
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.NotificationsActive,
+                                            contentDescription = null,
+                                            tint = Color(0xFFD97706),
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "⚠️ Nearing Spending Limits (${uiState.nearBudgetWarnings.size})",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFD97706)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Spending has reached or exceeded 80% of defined limits. Pace yourself to prevent overages:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    uiState.nearBudgetWarnings.forEach { ws ->
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 3.dp)
+                                                .clickable {
+                                                    onEditBudget(ws.category, ws.limit, ws.period, ws.alertThresholdPercent)
+                                                }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text(
+                                                        text = "• ${ws.category}",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = "${ws.period.title} Plan • ${DateUtils.formatCurrency(ws.remaining, uiState.currencySymbol)} left",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.outline
+                                                    )
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        text = "${(ws.percentage * 100).toInt()}% Used",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFFD97706),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Active Warnings Banner when limit is exceeded
                     if (uiState.exceededBudgetWarnings.isNotEmpty()) {
                         item {
@@ -158,7 +313,7 @@ fun BudgetsScreen(
                                         Icon(Icons.Default.Warning, contentDescription = null, tint = ExpenseRed, modifier = Modifier.size(24.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "⚠️ Limit Exceeded Warning!",
+                                            text = "🚨 Limit Exceeded Warning! (${uiState.exceededBudgetWarnings.size})",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                             color = ExpenseRed
@@ -166,7 +321,7 @@ fun BudgetsScreen(
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "The following monthly spending limits have been exceeded:",
+                                        text = "The following spending limits have been exceeded:",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -177,7 +332,7 @@ fun BudgetsScreen(
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text("• ${ws.category}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                            Text("• ${ws.category} (${ws.period.title})", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                             Text(
                                                 text = "Over by +${DateUtils.formatCurrency(ws.spent - ws.limit, uiState.currencySymbol)}",
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -191,7 +346,7 @@ fun BudgetsScreen(
                         }
                     }
 
-                    // 1. Overall Monthly Budget Card with Coin Filling Animation
+                    // 1. Overall Period Budget Card with Coin Filling Animation
                     item {
                         Card(
                             shape = RoundedCornerShape(22.dp),
@@ -222,20 +377,22 @@ fun BudgetsScreen(
                                         }
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Column {
-                                            Text("Monthly Budget", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text(DateUtils.formatMonthYear(System.currentTimeMillis()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("${uiState.selectedBudgetPeriod.title} Budget Plan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                            Text(uiState.periodFormattedLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
 
                                     Surface(
                                         shape = RoundedCornerShape(10.dp),
                                         color = MaterialTheme.colorScheme.primaryContainer,
-                                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onEditBudget("OVERALL", overallLimit) }
+                                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable {
+                                            onEditBudget("OVERALL", overallLimit, uiState.selectedBudgetPeriod, overallBudgetStatus?.alertThresholdPercent ?: 80.0)
+                                        }
                                     ) {
                                         Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Edit", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                            Text("Edit Plan", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -248,16 +405,16 @@ fun BudgetsScreen(
                                     verticalAlignment = Alignment.Bottom
                                 ) {
                                     Column {
-                                        Text("Spent so far", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Spent so far in ${uiState.selectedBudgetPeriod.shortLabel.lowercase()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(
                                             text = DateUtils.formatCurrency(overallSpent, uiState.currencySymbol),
                                             style = MaterialTheme.typography.headlineMedium,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = if (isOverBudget) ExpenseRed else MaterialTheme.colorScheme.onSurface
+                                            color = if (isOverBudget) ExpenseRed else if (isNearBudget) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text("Monthly Limit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("${uiState.selectedBudgetPeriod.title} Limit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(
                                             text = DateUtils.formatCurrency(overallLimit, uiState.currencySymbol),
                                             style = MaterialTheme.typography.titleLarge,
@@ -272,7 +429,7 @@ fun BudgetsScreen(
                                 LinearProgressIndicator(
                                     progress = { (overallPct * coinFillAnim).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
-                                    color = if (isOverBudget) ExpenseRed else if (overallPct > 0.8f) Color(0xFFF59E0B) else IncomeGreen,
+                                    color = if (isOverBudget) ExpenseRed else if (overallPct >= (overallBudgetStatus?.alertThresholdPercent ?: 80.0) / 100.0) Color(0xFFF59E0B) else IncomeGreen,
                                     trackColor = MaterialTheme.colorScheme.surface
                                 )
 
@@ -285,15 +442,17 @@ fun BudgetsScreen(
                                     Text(
                                         text = if (isOverBudget)
                                             "Exceeded by ${DateUtils.formatCurrency(overallSpent - overallLimit, uiState.currencySymbol)}"
+                                        else if (isNearBudget)
+                                            "Nearing limit: ${DateUtils.formatCurrency(overallRemaining, uiState.currencySymbol)} left"
                                         else
                                             "${DateUtils.formatCurrency(overallRemaining, uiState.currencySymbol)} remaining",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (isOverBudget) ExpenseRed else IncomeGreen
+                                        color = if (isOverBudget) ExpenseRed else if (isNearBudget) Color(0xFFD97706) else IncomeGreen
                                     )
 
                                     Text(
-                                        text = "${DateUtils.formatCurrency(dailyAllowance, uiState.currencySymbol)}/day left ($daysLeft days)",
+                                        text = "${DateUtils.formatCurrency(dailyAllowance, uiState.currencySymbol)}/day safe pace ($daysLeft days)",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.outline
                                     )
@@ -303,19 +462,37 @@ fun BudgetsScreen(
                     }
 
                     item {
-                        Text(
-                            text = "Category Budget Limits & Warnings",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Category Spending Limits (${uiState.selectedBudgetPeriod.title})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+
+                            Button(
+                                onClick = {
+                                    onEditBudget("", 0.0, uiState.selectedBudgetPeriod, 80.0)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("+ Set Limit", fontSize = 12.sp)
+                            }
+                        }
                     }
 
                     items(uiState.budgetStatuses.filter { it.category != "Overall Budget" && it.category != "OVERALL" }) { status ->
                         CategoryBudgetCard(
                             status = status,
                             currencySymbol = uiState.currencySymbol,
-                            onEdit = { onEditBudget(status.category, status.limit) }
+                            onEdit = { onEditBudget(status.category, status.limit, status.period, status.alertThresholdPercent) }
                         )
                     }
                 }
@@ -550,6 +727,27 @@ fun BudgetsScreen(
     }
 }
 
+// Backward-compatible overload for legacy callers
+@Composable
+fun BudgetsScreen(
+    uiState: ExpenseUiState,
+    onEditBudget: (category: String, currentLimit: Double) -> Unit,
+    onResetSampleData: () -> Unit,
+    onClearAllData: () -> Unit,
+    onOpenChiko: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    BudgetsScreen(
+        uiState = uiState,
+        onPeriodChange = {},
+        onEditBudget = { cat, limit, _, _ -> onEditBudget(cat, limit) },
+        onResetSampleData = onResetSampleData,
+        onClearAllData = onClearAllData,
+        onOpenChiko = onOpenChiko,
+        modifier = modifier
+    )
+}
+
 @Composable
 fun CategoryBudgetCard(
     status: BudgetStatus,
@@ -588,7 +786,21 @@ fun CategoryBudgetCard(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text(cat.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(cat.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = status.period.shortLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Text(
                             text = if (status.limit > 0)
                                 "Limit: ${DateUtils.formatCurrency(status.limit, currencySymbol)}"
@@ -608,6 +820,17 @@ fun CategoryBudgetCard(
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                                 fontWeight = FontWeight.Bold,
                                 color = ExpenseRed,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    } else if (isNear) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFF59E0B).copy(alpha = 0.2f)) {
+                            Text(
+                                text = "NEARING LIMIT",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD97706),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -638,13 +861,16 @@ fun CategoryBudgetCard(
                 Text(
                     text = "Spent: ${DateUtils.formatCurrency(status.spent, currencySymbol)}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isOver) ExpenseRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isOver) ExpenseRed else if (isNear) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "${(status.percentage * 100).toInt()}% used",
+                    text = if (status.limit > 0)
+                        "${(status.percentage * 100).toInt()}% used • Alert @ ${status.alertThresholdPercent.toInt()}%"
+                    else
+                        "No limit set",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = if (isOver) ExpenseRed else cat.color
+                    color = if (isOver) ExpenseRed else if (isNear) Color(0xFFD97706) else cat.color
                 )
             }
         }

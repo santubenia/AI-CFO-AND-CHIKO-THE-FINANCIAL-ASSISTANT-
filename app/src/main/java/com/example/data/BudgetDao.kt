@@ -12,6 +12,9 @@ interface BudgetDao {
     @Query("SELECT * FROM budgets")
     fun getAllBudgets(): Flow<List<BudgetEntity>>
 
+    @Query("SELECT * FROM budgets WHERE period = :period")
+    fun getBudgetsByPeriod(period: String): Flow<List<BudgetEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(budget: BudgetEntity)
 
@@ -20,6 +23,9 @@ interface BudgetDao {
 
     @Delete
     suspend fun delete(budget: BudgetEntity)
+
+    @Query("DELETE FROM budgets WHERE category = :category AND period = :period")
+    suspend fun deleteByCategoryAndPeriod(category: String, period: String)
 
     @Query("DELETE FROM budgets WHERE category = :category")
     suspend fun deleteByCategory(category: String)

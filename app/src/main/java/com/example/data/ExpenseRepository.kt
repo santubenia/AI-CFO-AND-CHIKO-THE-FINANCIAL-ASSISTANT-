@@ -92,6 +92,10 @@ class ExpenseRepository(
         budgetDao.delete(budget)
     }
 
+    suspend fun deleteBudgetByCategoryAndPeriod(category: String, period: String) {
+        budgetDao.deleteByCategoryAndPeriod(category, period)
+    }
+
     // Portfolio Operations
     suspend fun insertPortfolioAsset(asset: PortfolioAssetEntity): Long {
         return portfolioDao.insertAsset(asset)

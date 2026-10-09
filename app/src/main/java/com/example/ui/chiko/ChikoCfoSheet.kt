@@ -832,14 +832,17 @@ fun ChikoCfoSheet(
                             }
                         }
 
-                        // Budget Limit Exceeded Warnings
+                        // Budget Limit Exceeded & Approaching Warnings
                         item {
-                            val overBudgets = uiState.budgetStatuses.filter { it.percentage >= 1f }
+                            val overBudgets = uiState.allPeriodBudgetStatuses.filter { it.isExceeded }
+                            val nearBudgets = uiState.allPeriodBudgetStatuses.filter { it.isNearLimit }
                             Card(
                                 shape = RoundedCornerShape(18.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (overBudgets.isNotEmpty())
                                         ExpenseRed.copy(alpha = 0.1f)
+                                    else if (nearBudgets.isNotEmpty())
+                                        Color(0xFFF59E0B).copy(alpha = 0.1f)
                                     else
                                         IncomeGreen.copy(alpha = 0.1f)
                                 ),
@@ -848,37 +851,48 @@ fun ChikoCfoSheet(
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            if (overBudgets.isNotEmpty()) Icons.Default.Warning else Icons.Default.AutoAwesome,
+                                            if (overBudgets.isNotEmpty() || nearBudgets.isNotEmpty()) Icons.Default.Warning else Icons.Default.AutoAwesome,
                                             contentDescription = null,
-                                            tint = if (overBudgets.isNotEmpty()) ExpenseRed else IncomeGreen,
+                                            tint = if (overBudgets.isNotEmpty()) ExpenseRed else if (nearBudgets.isNotEmpty()) Color(0xFFF59E0B) else IncomeGreen,
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = if (overBudgets.isNotEmpty())
                                                 "Active Budget Warnings (${overBudgets.size} Exceeded)"
+                                            else if (nearBudgets.isNotEmpty())
+                                                "Budget Guard: ${nearBudgets.size} Nearing Limits"
                                             else
-                                                "Monthly Budget Guard: Optimal",
+                                                "Spending Plan Guard: Optimal",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (overBudgets.isNotEmpty()) ExpenseRed else IncomeGreen
+                                            color = if (overBudgets.isNotEmpty()) ExpenseRed else if (nearBudgets.isNotEmpty()) Color(0xFFD97706) else IncomeGreen
                                         )
                                     }
 
                                     Spacer(modifier = Modifier.height(8.dp))
 
-                                    if (overBudgets.isEmpty()) {
+                                    if (overBudgets.isEmpty() && nearBudgets.isEmpty()) {
                                         Text(
-                                            text = "All configured monthly budgets are disciplined and healthy.",
+                                            text = "All configured monthly, quarterly, and yearly spending limits are disciplined and healthy.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     } else {
                                         overBudgets.forEach { b ->
                                             Text(
-                                                text = "🚨 ${b.category}: Limit ${DateUtils.formatCurrency(b.limit, currencySymbol)}, Spent ${DateUtils.formatCurrency(b.spent, currencySymbol)} (+${DateUtils.formatCurrency(b.spent - b.limit, currencySymbol)} OVER LIMIT)",
+                                                text = "🚨 ${b.category} (${b.period.title}): Limit ${DateUtils.formatCurrency(b.limit, currencySymbol)}, Spent ${DateUtils.formatCurrency(b.spent, currencySymbol)} (+${DateUtils.formatCurrency(b.spent - b.limit, currencySymbol)} OVER LIMIT)",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = ExpenseRed,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(vertical = 2.dp)
+                                            )
+                                        }
+                                        nearBudgets.forEach { b ->
+                                            Text(
+                                                text = "⚠️ ${b.category} (${b.period.title}): Spent ${DateUtils.formatCurrency(b.spent, currencySymbol)} of ${DateUtils.formatCurrency(b.limit, currencySymbol)} (${(b.percentage * 100).toInt()}% used • ${DateUtils.formatCurrency(b.remaining, currencySymbol)} left)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFD97706),
                                                 fontWeight = FontWeight.SemiBold,
                                                 modifier = Modifier.padding(vertical = 2.dp)
                                             )

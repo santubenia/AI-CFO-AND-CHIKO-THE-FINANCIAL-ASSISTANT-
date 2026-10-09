@@ -16,6 +16,7 @@ object NotificationHelper {
     const val CHANNEL_BUDGET_ID = "coe_budget_channel"
     const val NOTIFICATION_SHAKE_ID = 1001
     const val NOTIFICATION_BUDGET_ID = 2001
+    const val NOTIFICATION_NEAR_BUDGET_ID = 2501
 
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -35,7 +36,7 @@ object NotificationHelper {
                 "Budget Warnings & Alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Instant alerts when expense categories exceed monthly budget limits"
+                description = "Instant alerts when expense categories approach or exceed spending limits"
                 enableVibration(true)
             }
 
@@ -74,7 +75,8 @@ object NotificationHelper {
         category: String,
         spent: Double,
         limit: Double,
-        currencySymbol: String
+        currencySymbol: String,
+        periodName: String = "Monthly"
     ) {
         createNotificationChannels(context)
         val overage = spent - limit
@@ -92,11 +94,11 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET_ID)
             .setSmallIcon(R.drawable.ic_coe_logo)
-            .setContentTitle("⚠️ Budget Limit Exceeded: $category")
+            .setContentTitle("🚨 $periodName Budget Exceeded: $category")
             .setContentText("You've spent $currencySymbol${String.format("%.2f", spent)} (Over by $currencySymbol${String.format("%.2f", overage)})")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    "Alert: Your monthly spending for $category has reached $currencySymbol${String.format("%.2f", spent)}, exceeding your limit of $currencySymbol${String.format("%.2f", limit)} by $currencySymbol${String.format("%.2f", overage)}."
+                    "Alert: Your $periodName spending for $category has reached $currencySymbol${String.format("%.2f", spent)}, exceeding your limit of $currencySymbol${String.format("%.2f", limit)} by $currencySymbol${String.format("%.2f", overage)}."
                 )
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -105,7 +107,49 @@ object NotificationHelper {
             .build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_BUDGET_ID + category.hashCode(), notification)
+        notificationManager.notify(NOTIFICATION_BUDGET_ID + (category + periodName).hashCode(), notification)
+    }
+
+    fun showNearBudgetLimitNotification(
+        context: Context,
+        category: String,
+        spent: Double,
+        limit: Double,
+        percentage: Float,
+        currencySymbol: String,
+        periodName: String = "Monthly"
+    ) {
+        createNotificationChannels(context)
+        val remaining = (limit - spent).coerceAtLeast(0.0)
+        val pctFormatted = (percentage * 100).toInt()
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("NAVIGATE_TO_TAB", "BUDGETS")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            2,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET_ID)
+            .setSmallIcon(R.drawable.ic_coe_logo)
+            .setContentTitle("⚠️ Nearing $periodName Budget Limit: $category ($pctFormatted%)")
+            .setContentText("Spent $currencySymbol${String.format("%.2f", spent)} of $currencySymbol${String.format("%.2f", limit)} • $currencySymbol${String.format("%.2f", remaining)} left")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "Budget Guard Alert: You've reached $pctFormatted% of your $periodName spending limit for $category ($currencySymbol${String.format("%.2f", spent)} / $currencySymbol${String.format("%.2f", limit)}). Only $currencySymbol${String.format("%.2f", remaining)} left for the rest of this period."
+                )
+            )
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_NEAR_BUDGET_ID + (category + periodName).hashCode(), notification)
     }
 
     const val NOTIFICATION_SHAKE_ALERT_ID = 3001

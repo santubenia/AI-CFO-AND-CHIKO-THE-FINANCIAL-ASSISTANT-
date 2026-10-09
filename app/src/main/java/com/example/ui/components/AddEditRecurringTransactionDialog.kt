@@ -86,7 +86,7 @@ fun AddEditRecurringTransactionDialog(
     var selectedFrequency by remember { mutableStateOf(defaultFrequency) }
     var selectedPaymentMethod by remember { mutableStateOf(defaultPaymentMethod) }
     var notes by remember { mutableStateOf("") }
-    var autoExecute by remember { mutableStateOf(true) }
+    var autoExecute by remember { mutableStateOf(false) }
     var isCategoryDropdownExpanded by remember { mutableStateOf(false) }
 
     val frequencies = listOf("DAILY", "WEEKLY", "MONTHLY")
